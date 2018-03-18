@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>three.js webgl - lines - cubes - colors</title>
-		<meta charset="utf-8">
+		<title>three.js webgl - bezier light - curves - colors</title>
+		<!-- this experiment uses fat lines approach -->
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<style>
 			body {
@@ -75,13 +75,13 @@
 
 			camera, scene, renderer, material, composer;
 
-
-			var POINTS = 50;
-			var SPREAD = 400;
-			var SUBDIVISIONS = 40;
+			var POINTS = 100;
+			var SPREAD = 400; // Random spread of waypoints
+			var BRUSHES = 55; // Brushes are number of lines
+			// 5 - 60
+			var SUBDIVISIONS = 20;
 			var VISIBLE_POINTS = 7 * SUBDIVISIONS;
-			var SPEED = 3;
-			var BRUSHES = 60;
+			var SPEED = 1.4; // 3
 			var DIZZY = false;
 
 			var curve;
@@ -96,7 +96,6 @@
 				this.curve = new THREE.QuadraticBezierCurve3();
 			}
 
-
 			function Brush() {
 				this.geometry = new THREE.Geometry();
 				this.points = [];
@@ -107,10 +106,8 @@
 
 			var randAngle = new THREE.Vector3();
 
-
 			function addWayPoint(x, y, z, randomRadius) {
 				var p = new THREE.Vector3(x, y, z);
-				
 
 				// add new points to chains
 				for (j = BRUSHES; j--; ) {
@@ -118,19 +115,16 @@
 					chain = chains[j];
 					p = p.clone();
 					
-					// p.y += (Math.random() - 0.5) * randomRadius;
-					
-					// p.x += (Math.random() - 0.5) * randomRadius;
-					// p.z += (Math.random() - 0.5) * randomRadius;
-
-					randAngle.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(randomRadius);
+					randAngle
+						.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+						.normalize()
+						.multiplyScalar(randomRadius);
 
 					// should derive the normals?
 
 
 					p.add(randAngle);
 
-					// Math.random() * Math.PI 
 					chain.points.push(p);
 
 					// chain.widths.push(randomRadius / 10);
