@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - bezier light - curves - colors</title>
+		<!-- this experiment uses fat lines approach -->
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #000000;
+				margin: 0px;
+				overflow: hidden;
+			}
+
+			a {
+				color:#0078ff;
+			}
+
+			#info {
+				position: absolute;
+				top: 10px; width: 100%;
+				color: #ffffff;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				text-align: center;
+				z-index:100;
+			}
+
+			a {
+				color: orange;
+				text-decoration: none;
+			}
+
+			a:hover {
+				color: #0080ff;
+			}
+
+		</style>
+	</head>
+	<body>
+
+		<div id="info">
+			<a href="http://twitter.com/blurspline" target="_blank">@blurspline</a> Chasing Bezier Lights with
+			<a href="http://threejs.org" target="_blank">three.js</a><br/><br/>
+
+			<a href="#" onclick="return dizzy()">[Make me Dizzy!]</a><br/>
+			<a href="#" onclick="return rain()">Rain!</a><br/>
+
+		</div>
+
+		<script src="three.min.js"></script>
+
+		<script src="js/shaders/ConvolutionShader.js"></script>
+		<script src="js/shaders/CopyShader.js"></script>
+		<script src="js/shaders/FXAAShader.js"></script>
+
+		<script src="js/postprocessing/EffectComposer.js"></script>
+		<script src="js/postprocessing/MaskPass.js"></script>
+		<script src="js/postprocessing/RenderPass.js"></script>
+		<script src="js/postprocessing/ShaderPass.js"></script>
+		<script src="js/postprocessing/BloomPass.js"></script>
+
+		<script src="js/Detector.js"></script>
+        <script src="js/libs/stats.min.js"></script>
+        
+        <script src="js/vr/WebVR.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var effectFXAA;
+
+			var mouseX = 0, mouseY = 0,
+
+			windowHalfX = window.innerWidth / 2,
+			windowHalfY = window.innerHeight / 2,
+
+			camera, scene, renderer, material, composer;
+
+			var POINTS = 100; // Points for each line/curve
+			var SPREAD = 400; // Random spread of waypoints
+			var BRUSHES = 5; // Brushes are number of lines
+			// 5 - 60
+			var SUBDIVISIONS = 20; // points per curve segments
+			var RADIUS_SPREAD = 40;
+			var VISIBLE_POINTS = 7 * SUBDIVISIONS;
+			var SPEED = 3 // 1.4; // 3
+			var DIZZY = false;
+
+			var curve;
+			var j;
+			var chain, points, midpoint;
+			var chains;
+			var brushes = [];
+
+			class Chain {
+				constructor(points) {
+					this.points = new Array(points).fill().map(() => new THREE.Vector3());
+					this.midpoints = this.points.map(() => new THREE.Vector3());				
+					this.curve = new THREE.QuadraticBezierCurve3();
+				}
+
+				addPoint(x, y, z, radiusSpread, pointIndex) {
+					var p = this.points[pointIndex].set(x, y, z);
+					randAngle
+						.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+						.normalize()
+						.multiplyScalar(radiusSpread);
+					
+					p.add(randAngle);
+					// this.widths.push(radiusSpread / 10);
+				}
+
+				calculateMidPoints() {
+					var pts = this.points.length;
+					for (var i = 0; i < pts; i++) {
+						var midPoint = this.midpoints[i];
+						midPoint.copy(this.points[i]);
+						var beforeIndex = i - 1;
+						midPoint.add(this.points[beforeIndex >= 0 ? beforeIndex : pts - 1]);
+						midPoint.multiplyScalar(0.5);
+					}
+				}
+			}
+
+			function Brush() {
+				this.geometry = new THREE.Geometry();
+				this.points = []; // SUBDIVISONS
+				this.colors = [];
+
+				this.hueOffset = (Math.random() - 0.5) * 0.1;
+			}
+
+			var randAngle = new THREE.Vector3();
+
+
+			// this handles the light painting system
+			class LightBrush {
+				constructor() {
+					// TODO should own chains and brushes
+					this.init();
+				}
+
+				init() {
+					const numbers = new Array(BRUSHES).fill();
+
+					chains = numbers.map(() => new Chain(POINTS));
+					brushes = numbers.map(() => new Brush(POINTS));
+
+					for (var i=0; i<POINTS; i++) {
+						var randomRadius = 1 + Math.random() * RADIUS_SPREAD;
+						this.addPoint(
+							SPREAD * (Math.random() - 0.5), 
+							SPREAD * (Math.random() - 0.5), 
+							SPREAD * (Math.random() - 0.5),
+							randomRadius,
+							i
+						);
+					}
+
+					chains.forEach(chain => chain.calculateMidPoints());
+
+					brushes.forEach((brush, b) => {					
+						var lpoints = [];
+
+						for (i = 0; i < POINTS - 1; i++ ) {
+							chain = chains[b];
+							curve = chain.curve;
+							var midpoints = chain.midpoints;
+							points = chain.points;
+
+							curve.v0 = midpoints[i];
+							curve.v1 = points[i];
+							curve.v2 = midpoints[i+1];
+
+							for (j = 0; j < SUBDIVISIONS; j++) {
+
+								lpoints.push( curve.getPoint(j / SUBDIVISIONS))
+							}
+						}
+
+						brush.points = lpoints;
+					});
+				}
+
+				addPoint(x, y, z, radiusSpread, pointIndex) {
+					chains.forEach(chain => chain.addPoint(x, y, z, radiusSpread, pointIndex));
+				}
+			}
+
+			function restart() {
+				lights = new LightBrush()
+
+				t = 0;
+			}
+
+			function dizzy() {
+				DIZZY = true;
+				camera.setLens(16);
+				SPEED = SPEED / 2;
+
+				restart();
+
+				return false;
+			}
+
+			function rain() {
+				for (i=0; i<lines.length; i++) {
+					lines[i].type = THREE.LinePieces;
+					lines.needUpdate = true;
+				}
+			}
+
+
+			var t = 0, u, v;
+			var tmp = new THREE.Vector3();
+			var lookAt = new THREE.Vector3();
+
+			var line, lines;
+
+			init();
+			animate();
+
+			function init() {
+
+				restart();
+
+				var i, container;
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				camera = new THREE.PerspectiveCamera( 33, window.innerWidth / window.innerHeight, 1, 10000 );
+				camera.position.z = 700;
+
+				scene = new THREE.Scene();
+
+				renderer = new THREE.WebGLRenderer( { antialias: false, alpha: false } );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+                renderer.autoClear = false;
+                renderer.vr.enabled = true;
+
+                document.body.appendChild( WEBVR.createButton( renderer ) );
+
+
+				container.appendChild( renderer.domElement );
+
+				material = new THREE.LineBasicMaterial( { color: 0xffffff, opacity: 1, linewidth: 1, vertexColors: THREE.VertexColors } );
+
+				lines = [];
+
+				for (b=BRUSHES;b--;) {
+					brush = brushes[b]
+
+					geometry = brush.geometry;
+					line = new THREE.Line( geometry,  material );
+					// line.type = THREE.LinePieces;
+
+					lines.push(line);
+
+					scene.add( line );
+
+					colors = geometry.colors;
+
+					for ( i = 0; i < VISIBLE_POINTS; i ++ ) {
+
+						geometry.vertices.push( new THREE.Vector3() );
+						colors[i] = new THREE.Color( 0xffffff );
+						
+					}
+
+				}
+
+
+
+				stats = new Stats();
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.top = '0px';
+				container.appendChild( stats.domElement );
+
+				//
+
+				document.addEventListener( 'mousedown', restart, false );
+				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+				document.addEventListener( 'touchstart', onDocumentTouchStart, false );
+				document.addEventListener( 'touchmove', onDocumentTouchMove, false );
+
+				//
+
+				var renderModel = new THREE.RenderPass( scene, camera );
+				var effectBloom = new THREE.BloomPass( 1.3 + 1);
+				var effectCopy = new THREE.ShaderPass( THREE.CopyShader );
+
+				effectFXAA = new THREE.ShaderPass( THREE.FXAAShader );
+
+				var width = window.innerWidth || 2;
+				var height = window.innerHeight || 2;
+
+				effectFXAA.uniforms[ 'resolution' ].value.set( 1 / width, 1 / height );
+
+				effectCopy.renderToScreen = true;
+
+				composer = new THREE.EffectComposer( renderer );
+
+				composer.addPass( renderModel );
+				composer.addPass( effectFXAA );
+				composer.addPass( effectBloom );
+				composer.addPass( effectCopy );
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+			function onWindowResize() {
+
+				windowHalfX = window.innerWidth / 2;
+				windowHalfY = window.innerHeight / 2;
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				effectFXAA.uniforms[ 'resolution' ].value.set( 1 / window.innerWidth, 1 / window.innerHeight );
+
+				composer.reset();
+
+			}
+
+			//
+
+			function onDocumentMouseMove( event ) {
+
+				mouseX = event.clientX - windowHalfX;
+				mouseY = event.clientY - windowHalfY;
+
+			}
+
+			function onDocumentTouchStart( event ) {
+
+				if ( event.touches.length > 1 ) {
+
+					event.preventDefault();
+
+					mouseX = event.touches[ 0 ].pageX - windowHalfX;
+					mouseY = event.touches[ 0 ].pageY - windowHalfY;
+
+				}
+
+			}
+
+			function onDocumentTouchMove( event ) {
+
+				if ( event.touches.length == 1 ) {
+
+					event.preventDefault();
+
+					mouseX = event.touches[ 0 ].pageX - windowHalfX;
+					mouseY = event.touches[ 0 ].pageY - windowHalfY;
+				}
+
+			}
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+				render();
+
+				stats.update();
+
+			}
+
+
+
+			function render() {
+
+				t += SPEED;
+				u = t | 0;
+
+				
+
+
+				for (j=BRUSHES;j--;) {
+					brush = brushes[j]
+
+					geometry = brush.geometry;
+					lpoints = brush.points;
+					
+					for (i = 0; i < VISIBLE_POINTS; i++) {
+						v = (i + u) % lpoints.length;
+						geometry.vertices[i].copy(lpoints[v]);
+
+						d = i / VISIBLE_POINTS;
+						d = 1 - (1 - d) * (1 - d);
+						geometry.colors[i].setHSL( brush.hueOffset + (v / lpoints.length * 4) % 1, 0.7 , 0.2 + d * 0.4  );
+					}
+
+					geometry.verticesNeedUpdate = true;
+					geometry.colorsNeedUpdate = true;
+				}
+
+
+				if (!DIZZY) {
+
+					var targetAngle = mouseX / windowHalfX * Math.PI;
+					var targetX = Math.cos(targetAngle) * 500;
+					var targetZ = Math.sin(targetAngle) * 300;
+
+					camera.position.x += ( targetX - camera.position.x ) * .04;
+					camera.position.y += ( - mouseY + 200 - camera.position.y ) * .05;
+					camera.position.z += ( targetZ - camera.position.z ) * .04;
+					camera.lookAt( scene.position );
+
+				} else {
+						v = geometry.vertices;
+						tmp.copy( v[v.length * 0.4 | 0] );
+						tmp.y += 50;
+						// camera.position.copy(tmp);
+						camera.position.x += ( tmp.x - camera.position.x ) * .04;
+						camera.position.y += ( tmp.y - camera.position.y ) * .05;
+						camera.position.z += ( tmp.z - camera.position.z ) * .04;
+
+						tmp.copy( lookAt )
+						lookAt.subVectors( v[v.length - 2], lookAt ).multiplyScalar(0.5);
+						lookAt.add( tmp )
+
+						camera.lookAt( lookAt );
+				}
+				
+
+				// var time = Date.now() * 0.0005;
+
+
+				renderer.clear();
+				composer.render();
+
+			}
+
+		</script>
+
+		<script type="text/javascript">
+			var _gaq = _gaq || [];
+			_gaq.push(['_setAccount', 'UA-7549263-1']);
+			_gaq.push(['_trackPageview']);
+
+			(function() {
+			var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+			ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+			var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+			})();
+		</script>
+	</body>
+</html>
