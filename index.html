@@ -75,13 +75,14 @@
 
 			camera, scene, renderer, material, composer;
 
-			var POINTS = 100;
+			var POINTS = 100; // Points for each line/curve
 			var SPREAD = 400; // Random spread of waypoints
-			var BRUSHES = 55; // Brushes are number of lines
+			var BRUSHES = 5; // Brushes are number of lines
 			// 5 - 60
-			var SUBDIVISIONS = 20;
+			var SUBDIVISIONS = 20; // points per curve segments
+			var RADIUS_SPREAD = 40;
 			var VISIBLE_POINTS = 7 * SUBDIVISIONS;
-			var SPEED = 1.4; // 3
+			var SPEED = 3 // 1.4; // 3
 			var DIZZY = false;
 
 			var curve;
@@ -90,15 +91,39 @@
 			var chains;
 			var brushes = [];
 
-			function Chain() {
-				this.points = [];
-				this.midpoints = [];				
-				this.curve = new THREE.QuadraticBezierCurve3();
+			class Chain {
+				constructor(points) {
+					this.points = new Array(points).fill().map(() => new THREE.Vector3());
+					this.midpoints = this.points.map(() => new THREE.Vector3());				
+					this.curve = new THREE.QuadraticBezierCurve3();
+				}
+
+				addPoint(x, y, z, radiusSpread, pointIndex) {
+					var p = this.points[pointIndex].set(x, y, z);
+					randAngle
+						.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+						.normalize()
+						.multiplyScalar(radiusSpread);
+					
+					p.add(randAngle);
+					// this.widths.push(radiusSpread / 10);
+				}
+
+				calculateMidPoints() {
+					var pts = this.points.length;
+					for (var i = 0; i < pts; i++) {
+						var midPoint = this.midpoints[i];
+						midPoint.copy(this.points[i]);
+						var beforeIndex = i - 1;
+						midPoint.add(this.points[beforeIndex >= 0 ? beforeIndex : pts - 1]);
+						midPoint.multiplyScalar(0.5);
+					}
+				}
 			}
 
 			function Brush() {
 				this.geometry = new THREE.Geometry();
-				this.points = [];
+				this.points = []; // SUBDIVISONS
 				this.colors = [];
 
 				this.hueOffset = (Math.random() - 0.5) * 0.1;
@@ -106,96 +131,65 @@
 
 			var randAngle = new THREE.Vector3();
 
-			function addWayPoint(x, y, z, randomRadius) {
-				var p = new THREE.Vector3(x, y, z);
 
-				// add new points to chains
-				for (j = BRUSHES; j--; ) {
-
-					chain = chains[j];
-					p = p.clone();
-					
-					randAngle
-						.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
-						.normalize()
-						.multiplyScalar(randomRadius);
-
-					// should derive the normals?
-
-
-					p.add(randAngle);
-
-					chain.points.push(p);
-
-					// chain.widths.push(randomRadius / 10);
-
-					points = chain.points;
-					midpoint = p.clone()
-
-					l = points.length;
-					
-					if (l==1) {
-						midpoint.add(p)
-					} else {
-						midpoint.add(points[l-2])
-					}
-
-					midpoint.multiplyScalar(0.5);
-
-					chain.midpoints.push(midpoint);
-
+			// this handles the light painting system
+			class LightBrush {
+				constructor() {
+					// TODO should own chains and brushes
+					this.init();
 				}
 
+				init() {
+					const numbers = new Array(BRUSHES).fill();
+
+					chains = numbers.map(() => new Chain(POINTS));
+					brushes = numbers.map(() => new Brush(POINTS));
+
+					for (var i=0; i<POINTS; i++) {
+						var randomRadius = 1 + Math.random() * RADIUS_SPREAD;
+						this.addPoint(
+							SPREAD * (Math.random() - 0.5), 
+							SPREAD * (Math.random() - 0.5), 
+							SPREAD * (Math.random() - 0.5),
+							randomRadius,
+							i
+						);
+					}
+
+					chains.forEach(chain => chain.calculateMidPoints());
+
+					brushes.forEach((brush, b) => {					
+						var lpoints = [];
+
+						for (i = 0; i < POINTS - 1; i++ ) {
+							chain = chains[b];
+							curve = chain.curve;
+							var midpoints = chain.midpoints;
+							points = chain.points;
+
+							curve.v0 = midpoints[i];
+							curve.v1 = points[i];
+							curve.v2 = midpoints[i+1];
+
+							for (j = 0; j < SUBDIVISIONS; j++) {
+
+								lpoints.push( curve.getPoint(j / SUBDIVISIONS))
+							}
+						}
+
+						brush.points = lpoints;
+					});
+				}
+
+				addPoint(x, y, z, radiusSpread, pointIndex) {
+					chains.forEach(chain => chain.addPoint(x, y, z, radiusSpread, pointIndex));
+				}
 			}
 
 			function restart() {
-
-				// setup
-				chains = [];
-				for (j = BRUSHES; j--; ) {
-					chains.push( new Chain() );
-				}
-				
-				for (i=0; i<POINTS; i++) {
-					randomRadius = 1 + Math.random() * 20;
-					addWayPoint( SPREAD * (Math.random() - 0.5), 
-						SPREAD * (Math.random() - 0.5), 
-						SPREAD * (Math.random() - 0.5),
-						randomRadius );
-					
-				}
-
-
-				if (brushes.length) for (b=BRUSHES;b--;) {
-					brush = brushes[b]
-					
-					lpoints = [];
-
-
-					for (i = 0; i < POINTS - 1; i++ ) {
-
-						chain = chains[b];
-						curve = chain.curve;
-						midpoints = chain.midpoints;
-						points = chain.points;
-
-
-						curve.v0 = midpoints[i];
-						curve.v1 = points[i];
-						curve.v2 = midpoints[i+1];
-
-						for (j = 0; j < SUBDIVISIONS; j++) {
-
-							lpoints.push( curve.getPoint(j / SUBDIVISIONS))
-						}
-					}
-
-					brush.points = lpoints;
-
-				}
+				lights = new LightBrush()
 
 				t = 0;
-
 			}
 
 			function dizzy() {
@@ -229,7 +223,6 @@
 
 				restart();
 
-
 				var i, container;
 
 				container = document.createElement( 'div' );
@@ -246,38 +239,7 @@
 
 				container.appendChild( renderer.domElement );
 
-
-
-
 				material = new THREE.LineBasicMaterial( { color: 0xffffff, opacity: 1, linewidth: 1, vertexColors: THREE.VertexColors } );
-
-				for (b=BRUSHES;b--;) {
-					brush = new Brush();
-					brushes.push( brush );
-					
-					lpoints = brush.points;
-
-
-					for (i = 0; i < POINTS - 1; i++ ) {
-
-						chain = chains[b];
-						curve = chain.curve;
-						midpoints = chain.midpoints;
-						points = chain.points;
-
-
-						curve.v0 = midpoints[i];
-						curve.v1 = points[i];
-						curve.v2 = midpoints[i+1];
-
-						for (j = 0; j < SUBDIVISIONS; j++) {
-
-							lpoints.push( curve.getPoint(j / SUBDIVISIONS))
-						}
-					}
-
-				}
-
 
 				lines = [];
 
